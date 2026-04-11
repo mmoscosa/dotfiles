@@ -1,0 +1,295 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+MM_VERSION="0.1.0"
+
+# ── Colors ─────────────────────────────────────────────────
+C_MAUVE='\033[38;2;203;166;247m'
+C_LAVENDER='\033[38;2;180;190;254m'
+C_PEACH='\033[38;2;250;179;135m'
+C_GREEN='\033[38;2;166;227;161m'
+C_RED='\033[38;2;243;139;168m'
+C_OVERLAY='\033[38;2;127;132;156m'
+C_RESET='\033[0m'
+
+info()  { echo -e "${C_MAUVE}${1}${C_RESET}"; }
+ok()    { echo -e "${C_GREEN}✓${C_RESET} ${1}"; }
+warn()  { echo -e "${C_PEACH}⚠${C_RESET} ${1}"; }
+err()   { echo -e "${C_RED}✗${C_RESET} ${1}" >&2; }
+
+# ── Config ─────────────────────────────────────────────────
+WORK_ROOT="${MM_WORK_ROOT:-$HOME/UtilityProfit/projects/utilityprofit}"
+WORKTREE_DIR="${MM_WORKTREE_DIR:-$HOME/UtilityProfit/projects/worktrees}"
+PERSONAL_ROOT="${MM_PERSONAL_ROOT:-$HOME/Code}"
+LINEAR_ENABLED="${MM_LINEAR_ENABLED:-1}"
+
+# ── Work Flow ──────────────────────────────────────────────
+cmd_work() {
+  local TICKET="${1:?Usage: mm work <TICKET>}"
+  if [[ "$TICKET" =~ ^[0-9]+$ ]]; then
+    TICKET="UP-${TICKET}"
+  fi
+  TICKET=$(echo "$TICKET" | tr '[:lower:]' '[:upper:]')
+
+  local TICKET_NUM
+  TICKET_NUM=$(echo "$TICKET" | grep -oE '[0-9]+' | tail -1)
+  local API_PORT=$((8000 + (TICKET_NUM % 1000)))
+  local WT_PATH="${WORKTREE_DIR}/${TICKET}"
+
+  if tmux has-session -t "$TICKET" 2>/dev/null; then
+    info "Reattaching to: $TICKET (port $API_PORT)"
+    tmux attach-session -t "$TICKET"
+    return
+  fi
+
+  if [ -d "$WT_PATH" ]; then
+    info "Worktree exists at $WT_PATH"
+  else
+    info "Creating worktree for $TICKET..."
+    cd "$WORK_ROOT"
+    git checkout main 2>/dev/null
+    git pull origin main
+    git worktree add "$WT_PATH" -b "$TICKET"
+    ok "Worktree created at $WT_PATH"
+  fi
+
+  if [ -f "$WORK_ROOT/.env" ]; then
+    cp "$WORK_ROOT/.env" "$WT_PATH/.env"
+    sed -i '' "s/PORT=\"8000\"/PORT=\"$API_PORT\"/" "$WT_PATH/.env"
+    sed -i '' "s|WEB_API_URL=\"http://localhost:8000|WEB_API_URL=\"http://localhost:$API_PORT|" "$WT_PATH/.env"
+  fi
+
+  cd "$WT_PATH"
+  git fetch origin main
+  git rebase origin/main 2>/dev/null || {
+    warn "Rebase had conflicts — resolve manually"
+  }
+
+  tmux new-session -d -s "$TICKET" -c "$WT_PATH" -n "🤖 claude"
+  tmux send-keys -t "$TICKET:1" "claudio" C-m
+  tmux new-window -t "$TICKET" -n " shell" -c "$WT_PATH"
+  tmux new-window -t "$TICKET" -n " logs" -c "$WT_PATH"
+  tmux select-window -t "$TICKET:1"
+
+  if [ "$LINEAR_ENABLED" = "1" ] && command -v linear &>/dev/null; then
+    info "Fetching Linear ticket..."
+    linear issue "$TICKET" 2>/dev/null || true
+  fi
+
+  ok "Starting: $TICKET in $WT_PATH (port $API_PORT)"
+  tmux attach-session -t "$TICKET"
+}
+
+cmd_done() {
+  local TICKET="${1:?Usage: mm done <TICKET>}"
+  TICKET=$(echo "$TICKET" | tr '[:lower:]' '[:upper:]')
+  if [[ "$TICKET" =~ ^[0-9]+$ ]]; then
+    TICKET="UP-${TICKET}"
+  fi
+
+  local WT_PATH="${WORKTREE_DIR}/${TICKET}"
+
+  if [ -d "$WT_PATH" ]; then
+    cd "$WT_PATH"
+    if [ -n "$(git status --porcelain 2>/dev/null)" ]; then
+      err "Uncommitted changes in $WT_PATH"
+      git status --short
+      echo ""
+      warn "Commit, stash, or discard changes before cleaning up."
+      return 1
+    fi
+  fi
+
+  if tmux has-session -t "$TICKET" 2>/dev/null; then
+    tmux kill-session -t "$TICKET"
+    ok "Session killed: $TICKET"
+  fi
+
+  if [ -d "$WT_PATH" ]; then
+    cd "$WORK_ROOT"
+    git worktree remove "$WT_PATH" 2>/dev/null || {
+      warn "Could not remove worktree cleanly. Force remove? (y/N)"
+      read -r REPLY
+      if [[ "$REPLY" =~ ^[Yy]$ ]]; then
+        git worktree remove --force "$WT_PATH"
+      else
+        return 1
+      fi
+    }
+    ok "Worktree removed: $WT_PATH"
+  fi
+
+  if git branch --list "$TICKET" | grep -q "$TICKET"; then
+    git branch -d "$TICKET" 2>/dev/null || {
+      warn "Branch not fully merged. Force delete? (y/N)"
+      read -r REPLY
+      if [[ "$REPLY" =~ ^[Yy]$ ]]; then
+        git branch -D "$TICKET"
+      fi
+    }
+    ok "Local branch deleted: $TICKET"
+  fi
+
+  ok "Cleaned up: $TICKET"
+}
+
+# ── Personal Flow ──────────────────────────────────────────
+cmd_start() {
+  local NAME="${1:?Usage: mm start <name> [path]}"
+  local DIR="${2:-$PERSONAL_ROOT/$NAME}"
+
+  if tmux has-session -t "$NAME" 2>/dev/null; then
+    info "Reattaching to: $NAME"
+    tmux attach-session -t "$NAME"
+    return
+  fi
+
+  if [ ! -d "$DIR" ]; then
+    mkdir -p "$DIR"
+    ok "Created directory: $DIR"
+  fi
+
+  tmux new-session -d -s "$NAME" -c "$DIR" -n " shell"
+  tmux new-window -t "$NAME" -n " logs" -c "$DIR"
+  tmux select-window -t "$NAME:1"
+
+  ok "Starting: $NAME in $DIR"
+  tmux attach-session -t "$NAME"
+}
+
+cmd_open() {
+  local NAME="${1:?Usage: mm open <name>}"
+  if tmux has-session -t "$NAME" 2>/dev/null; then
+    info "Reattaching to: $NAME"
+    tmux attach-session -t "$NAME"
+  else
+    err "No session found: $NAME"
+    echo "Available sessions:"
+    tmux ls 2>/dev/null || echo "  (none)"
+    return 1
+  fi
+}
+
+# ── Session Management ─────────────────────────────────────
+cmd_ls() {
+  if ! tmux ls &>/dev/null; then
+    info "No tmux sessions running."
+    return
+  fi
+
+  echo -e "${C_MAUVE}  Sessions${C_RESET}"
+  echo -e "${C_OVERLAY}──────────────────────────────────────${C_RESET}"
+  tmux ls -F "#{session_name}|#{session_windows}|#{session_attached}|#{session_activity}" | while IFS='|' read -r name windows attached activity; do
+    local icon=" "
+    if [[ "$name" =~ ^UP- ]]; then
+      icon=" "
+    elif [[ "$name" =~ ^cc- ]]; then
+      icon="🤖"
+    fi
+
+    local attach_indicator=""
+    if [ "$attached" = "1" ]; then
+      attach_indicator="${C_GREEN}●${C_RESET} "
+    else
+      attach_indicator="${C_OVERLAY}○${C_RESET} "
+    fi
+
+    echo -e "  ${attach_indicator}${icon} ${C_LAVENDER}${name}${C_RESET}  ${C_OVERLAY}(${windows} windows)${C_RESET}"
+  done
+}
+
+cmd_switch() {
+  if command -v sesh &>/dev/null; then
+    sesh connect
+  else
+    local session
+    session=$(tmux ls -F "#{session_name}" 2>/dev/null | fzf --prompt="Switch to: " --height=40% --reverse)
+    if [ -n "$session" ]; then
+      tmux switch-client -t "$session" 2>/dev/null || tmux attach-session -t "$session"
+    fi
+  fi
+}
+
+cmd_kill() {
+  local NAME="${1:?Usage: mm kill <session>}"
+  if tmux has-session -t "$NAME" 2>/dev/null; then
+    tmux kill-session -t "$NAME"
+    ok "Killed session: $NAME"
+  else
+    err "No session found: $NAME"
+    return 1
+  fi
+}
+
+cmd_status() {
+  if ! tmux ls &>/dev/null; then
+    info "No tmux sessions running."
+    return
+  fi
+
+  echo -e "${C_MAUVE}  Session Status${C_RESET}"
+  echo -e "${C_OVERLAY}──────────────────────────────────────────────────${C_RESET}"
+  printf "${C_OVERLAY}%-16s %-8s %-8s %s${C_RESET}\n" "SESSION" "WINDOWS" "PANES" "PATH"
+  echo -e "${C_OVERLAY}──────────────────────────────────────────────────${C_RESET}"
+
+  for session in $(tmux ls -F "#{session_name}" 2>/dev/null); do
+    local windows panes path
+    windows=$(tmux list-windows -t "$session" 2>/dev/null | wc -l | tr -d ' ')
+    panes=$(tmux list-panes -t "$session" -s 2>/dev/null | wc -l | tr -d ' ')
+    path=$(tmux display-message -t "$session" -p '#{pane_current_path}' 2>/dev/null)
+    path="${path/#$HOME/~}"
+    printf "%-16s %-8s %-8s %s\n" "$session" "$windows" "$panes" "$path"
+  done
+}
+
+# ── Help ───────────────────────────────────────────────────
+usage() {
+  cat <<EOF
+$(echo -e "${C_MAUVE}mm${C_RESET}") v${MM_VERSION} — personal session manager
+
+$(echo -e "${C_LAVENDER}USAGE${C_RESET}")
+  mm <command> [args]
+
+$(echo -e "${C_LAVENDER}WORK FLOW${C_RESET}")
+  mm work <TICKET>         Create worktree + tmux session for ticket
+  mm done <TICKET>         Cleanup worktree, session, local branch
+
+$(echo -e "${C_LAVENDER}PERSONAL FLOW${C_RESET}")
+  mm start <name> [path]   Create tmux session for personal project
+  mm open <name>           Reattach to existing personal session
+
+$(echo -e "${C_LAVENDER}SESSION MANAGEMENT${C_RESET}")
+  mm ls                    List all tmux sessions
+  mm switch                Fuzzy session picker (sesh)
+  mm kill <session>        Kill a session cleanly
+  mm status                Show running sessions with details
+
+$(echo -e "${C_LAVENDER}OTHER${C_RESET}")
+  mm help                  Show this help
+  mm version               Show version
+
+$(echo -e "${C_LAVENDER}EXAMPLES${C_RESET}")
+  mm work UP-4522          # work ticket → worktree + session on port 8522
+  mm start my-app          # personal project in ~/Code/my-app
+  mm switch                # fuzzy-pick any session
+  mm done UP-4522          # clean up when done
+EOF
+}
+
+# ── Argument Parsing ───────────────────────────────────────
+CMD="${1:-help}"
+shift 2>/dev/null || true
+
+case "$CMD" in
+  work)    cmd_work "$@" ;;
+  done)    cmd_done "$@" ;;
+  start)   cmd_start "$@" ;;
+  open)    cmd_open "$@" ;;
+  ls)      cmd_ls ;;
+  switch)  cmd_switch ;;
+  kill)    cmd_kill "$@" ;;
+  status)  cmd_status ;;
+  help|-h|--help) usage ;;
+  version|-v|--version) echo "mm v${MM_VERSION}" ;;
+  *)       err "Unknown command: $CMD"; usage; exit 1 ;;
+esac
