@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# dev — legacy session launcher, now wraps mm
+# Usage:
+#   dev              → session named after current folder
+#   dev <name>       → session named <name>, current dir
+#   dev <name> <dir> → named session, specific dir
+
+NAME="${1:-$(basename "$PWD")}"
+DIR="${2:-$PWD}"
+
+# Delegate to mm
+if [[ "$NAME" =~ ^UP- ]]; then
+  exec ~/bin/mm work "$NAME"
+else
+  exec ~/bin/mm start "$NAME" "$DIR"
+fi
