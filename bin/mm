@@ -266,6 +266,7 @@ $(echo -e "${C_LAVENDER}SESSION MANAGEMENT${C_RESET}")
 
 $(echo -e "${C_LAVENDER}OTHER${C_RESET}")
   mm keys                  Show keyboard reference (or Ctrl-a /)
+  mm how-to                Show the hacker flow guide
   mm help                  Show this help
   mm version               Show version
 
@@ -314,6 +315,66 @@ cmd_keys() {
 EOF
 }
 
+# ── How-To Guide ───────────────────────────────────────────
+cmd_howto() {
+  cat <<EOF
+$(echo -e "${C_MAUVE}Ghost Protocol — How To${C_RESET}")
+
+$(echo -e "${C_LAVENDER}STARTING UP${C_RESET}")
+  Open Ghostty → you're automatically in tmux (session: main)
+
+$(echo -e "${C_LAVENDER}WORKING ON A TICKET${C_RESET}")
+  mm work UP-4522            Creates worktree, tmux session (port 8522)
+                             3 windows: 🤖 claude │  shell │  logs
+                             You land on claude, already running
+
+$(echo -e "${C_LAVENDER}NAVIGATING INSIDE A SESSION${C_RESET}")
+  Shift+Right/Left           Switch windows (claude / shell / logs)
+  Ctrl-a |                   Split vertically
+  Ctrl-a -                   Split horizontally
+  Alt+hjkl                   Jump between panes
+  Alt+Shift+hjkl             Resize panes
+
+$(echo -e "${C_LAVENDER}CLAUDE CODE${C_RESET}")
+  Ctrl-a y                   Pop up Claude in current dir context
+  Ctrl-a d                   Dismiss popup (Claude stays alive)
+  Ctrl-a y                   Bring it back anytime
+
+$(echo -e "${C_LAVENDER}AGENT TEAMS${C_RESET}")
+  Ctrl-a | (repeat)          Split panes, run claudio in each
+  Ctrl-a t                   Tile all panes (watch all agents)
+  Ctrl-a v                   Main agent left 55%, others stacked right
+  Ctrl-a h                   Main agent top, others below
+
+$(echo -e "${C_LAVENDER}JUMPING BETWEEN PROJECTS${C_RESET}")
+  mm switch                  Fuzzy picker — type to filter, enter to jump
+  mm ls                      See all sessions at a glance
+  mm status                  Detailed view with paths and pane counts
+
+$(echo -e "${C_LAVENDER}PERSONAL PROJECTS${C_RESET}")
+  mm start my-app            Creates session in ~/Code/my-app
+  mm start my-app ~/other    Custom path
+
+$(echo -e "${C_LAVENDER}FINISHING UP${C_RESET}")
+  mm done UP-4522            Kills session, removes worktree, cleans branch
+
+$(echo -e "${C_LAVENDER}PERSISTENCE${C_RESET}")
+  Close Ghostty, reopen      tmux-resurrect brings everything back
+  Claude popup sessions      Survive across restarts
+  All tmux sessions          Auto-saved every 15 minutes
+
+$(echo -e "${C_LAVENDER}DAILY RHYTHM${C_RESET}")
+  Open Ghostty
+    └→ lands in tmux (main)
+        ├→ mm work UP-XXXX      ticket work
+        ├→ mm work UP-YYYY      second ticket (parallel)
+        ├→ mm start side-proj   personal stuff
+        └→ mm switch            hop between them all
+
+$(echo -e "${C_OVERLAY}Run 'mm keys' or Ctrl-a / for the full keyboard reference${C_RESET}")
+EOF
+}
+
 # ── Argument Parsing ───────────────────────────────────────
 CMD="${1:-help}"
 shift 2>/dev/null || true
@@ -328,6 +389,7 @@ case "$CMD" in
   kill)    cmd_kill "$@" ;;
   status)  cmd_status ;;
   keys)    cmd_keys ;;
+  how-to|howto) cmd_howto ;;
   help|-h|--help) usage ;;
   version|-v|--version) echo "mm v${MM_VERSION}" ;;
   *)       err "Unknown command: $CMD"; usage; exit 1 ;;
