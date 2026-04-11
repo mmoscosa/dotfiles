@@ -276,6 +276,43 @@ $(echo -e "${C_LAVENDER}EXAMPLES${C_RESET}")
 EOF
 }
 
+# ── Keyboard Reference ─────────────────────────────────────
+cmd_keys() {
+  cat <<'EOF'
+╔══════════════════════════════════════════════════════════════╗
+║  Ghost Protocol — Keyboard Reference                        ║
+╠══════════════════════════════════════════════════════════════╣
+║  ACTION                             │ KEYS                  ║
+║─────────────────────────────────────│───────────────────────║
+║  Summon Claude popup                │ Ctrl-a y              ║
+║  Dismiss popup (Claude stays alive) │ Ctrl-a d              ║
+║  Zoom / unzoom pane                 │ Cmd-b                 ║
+║  Navigate panes                     │ Alt+Arrow / Alt+hjkl  ║
+║  Navigate windows                   │ Shift+Left/Right      ║
+║  Resize panes                       │ Alt+Shift+hjkl        ║
+║  Tiled layout (watch all agents)    │ Ctrl-a t              ║
+║  Main-vertical layout               │ Ctrl-a v              ║
+║  Main-horizontal layout             │ Ctrl-a h              ║
+║  New vertical split                 │ Ctrl-a |              ║
+║  New horizontal split               │ Ctrl-a -              ║
+║  Reload tmux config                 │ Ctrl-a r              ║
+║  Enter scroll mode                  │ Cmd-u                 ║
+║  Show this reference                │ Ctrl-a /              ║
+║─────────────────────────────────────│───────────────────────║
+║  New work session                   │ mm work UP-XXXX       ║
+║  New personal session               │ mm start <name>       ║
+║  Session picker                     │ mm switch             ║
+║  Session dashboard                  │ mm ls                 ║
+║  Clean up ticket                    │ mm done UP-XXXX       ║
+║─────────────────────────────────────│───────────────────────║
+║  LazyGit                            │ lg                    ║
+║  Fuzzy file search                  │ Ctrl-T                ║
+║  Fuzzy command history              │ Ctrl-R                ║
+║  Smart directory jump               │ Alt-C                 ║
+╚══════════════════════════════════════════════════════════════╝
+EOF
+}
+
 # ── Argument Parsing ───────────────────────────────────────
 CMD="${1:-help}"
 shift 2>/dev/null || true
@@ -289,6 +326,7 @@ case "$CMD" in
   switch)  cmd_switch ;;
   kill)    cmd_kill "$@" ;;
   status)  cmd_status ;;
+  keys)    cmd_keys ;;
   help|-h|--help) usage ;;
   version|-v|--version) echo "mm v${MM_VERSION}" ;;
   *)       err "Unknown command: $CMD"; usage; exit 1 ;;
