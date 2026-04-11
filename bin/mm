@@ -265,6 +265,7 @@ $(echo -e "${C_LAVENDER}SESSION MANAGEMENT${C_RESET}")
   mm status                Show running sessions with details
 
 $(echo -e "${C_LAVENDER}OTHER${C_RESET}")
+  mm keys                  Show keyboard reference (or Ctrl-a /)
   mm help                  Show this help
   mm version               Show version
 
