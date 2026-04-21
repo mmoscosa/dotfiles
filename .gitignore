@@ -2,3 +2,30 @@
 *.swp
 *.swo
 *~
+
+# Secrets — never commit
+.env
+.env.*
+.envrc
+.netrc
+credentials
+credentials.*
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
+id_ecdsa*
+id_dsa*
+*_rsa
+*_ed25519
+.ssh/
+.aws/
+.gnupg/
+.npmrc
+
+# Local-only config (not shared via dotfiles)
+*.local
+*.local.*
