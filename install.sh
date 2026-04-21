@@ -18,7 +18,7 @@ brew bundle --file="$DOTFILES/Brewfile"
 # 3. Stow packages
 echo "Symlinking configs..."
 cd "$DOTFILES"
-for pkg in ghostty tmux starship git demux; do
+for pkg in ghostty tmux starship git demux shell; do
   echo "  stow $pkg"
   stow --restow "$pkg" 2>/dev/null || stow --adopt "$pkg"
 done
@@ -50,5 +50,15 @@ if ! grep -q "zshrc.d" "$HOME/.zshrc" 2>/dev/null; then
   echo 'for f in ~/.zshrc.d/*.zsh(N); do source "$f"; done' >> "$HOME/.zshrc"
 fi
 
+# 8. Seed local (untracked) aliases file from template on first install
+LOCAL_ALIASES="$DOTFILES/shell/.zshrc.d/aliases.local.zsh"
+if [ ! -f "$LOCAL_ALIASES" ]; then
+  cp "$LOCAL_ALIASES.example" "$LOCAL_ALIASES"
+  echo "Seeded $LOCAL_ALIASES from template."
+fi
+
 echo ""
 echo "Done! Restart Ghostty or run: source ~/.zshrc"
+echo ""
+echo "⚠  Private aliases (e.g. claudio) aren't tracked in this repo."
+echo "   Edit ~/.zshrc.d/aliases.local.zsh to add them — it's gitignored."

@@ -29,3 +29,5 @@ id_dsa*
 # Local-only config (not shared via dotfiles)
 *.local
 *.local.*
+# …but keep tracked template files
+!*.example

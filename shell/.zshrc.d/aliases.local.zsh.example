@@ -1,0 +1,13 @@
+# Local-only aliases — not tracked in git.
+#
+# On first install, install.sh copies this file to aliases.local.zsh
+# (which is gitignored via *.local.* in .gitignore). Add any private
+# or machine-specific aliases there — they'll be sourced automatically.
+#
+# Examples of things that belong here but NOT in aliases.zsh:
+#   - Aliases that expose permission flags, credentials, or internal paths
+#   - Machine-specific paths (work laptop vs personal laptop)
+#   - Wrappers around tools you'd rather not advertise publicly
+#
+# Format is just shell — anything .zshrc would accept:
+#   alias example='some-command --some-flag'
