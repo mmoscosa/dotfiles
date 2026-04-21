@@ -17,11 +17,63 @@ ok()    { echo -e "${C_GREEN}✓${C_RESET} ${1}"; }
 warn()  { echo -e "${C_PEACH}⚠${C_RESET} ${1}"; }
 err()   { echo -e "${C_RED}✗${C_RESET} ${1}" >&2; }
 
+# Send a command to a pane only if it's currently idle at a shell prompt.
+# Used by cmd_resume to relaunch programs that tmux-continuum doesn't restore.
+ensure_pane_cmd() {
+  local TARGET="$1"
+  local CMD="$2"
+  local cur
+  cur=$(tmux display-message -t "$TARGET" -p '#{pane_current_command}' 2>/dev/null || true)
+  if [[ "$cur" =~ ^(zsh|bash|fish|sh)$ ]]; then
+    tmux send-keys -t "$TARGET" "$CMD" C-m
+  fi
+}
+
+# Attach when outside tmux, switch-client when already inside.
+# Avoids "open terminal failed: not a terminal" on nested attaches.
+attach() {
+  local TARGET="$1"
+  if [ -n "${TMUX:-}" ]; then
+    tmux switch-client -t "$TARGET"
+  else
+    tmux attach-session -t "$TARGET"
+  fi
+}
+
 # ── Config ─────────────────────────────────────────────────
-WORK_ROOT="${MM_WORK_ROOT:-$HOME/UtilityProfit/projects/utilityprofit}"
-WORKTREE_DIR="${MM_WORKTREE_DIR:-$HOME/UtilityProfit/projects/worktrees}"
+WORK_ROOT="${MM_WORK_ROOT:-$HOME/Documents/Code/utilityprofit}"
+WORKTREE_DIR="${MM_WORKTREE_DIR:-$HOME/Documents/Code/worktrees}"
 PERSONAL_ROOT="${MM_PERSONAL_ROOT:-$HOME/Code}"
 LINEAR_ENABLED="${MM_LINEAR_ENABLED:-1}"
+
+# ── Session Layout ─────────────────────────────────────────
+# Builds the standard 5-window layout used by work/start/resume:
+#   1:  Claude   (auto-runs claude in auto-accept mode)
+#   2:  Code     (nvim 65% | lazygit 35%)
+#   3: 󰹑 Demux    (auto-runs demux)
+#   4:  Shell
+#   5:  Logs
+setup_session_windows() {
+  local NAME="$1"
+  local DIR="$2"
+
+  tmux new-session -d -s "$NAME" -c "$DIR" -n " Claude"
+  tmux send-keys -t "$NAME:1" "claude" C-m
+
+  tmux new-window -t "$NAME" -n $'\xef\x84\xa1 Code' -c "$DIR"
+  tmux send-keys -t "$NAME:2" "nvim" C-m
+  tmux split-window -h -l '35%' -t "$NAME:2" -c "$DIR"
+  tmux send-keys -t "$NAME:2" "lazygit" C-m
+  tmux select-pane -t "$NAME:2" -L
+
+  tmux new-window -t "$NAME" -n "󰹑 Demux" -c "$DIR"
+  tmux send-keys -t "$NAME:3" "demux" C-m
+
+  tmux new-window -t "$NAME" -n $'\xef\x84\xa0 Shell' -c "$DIR"
+  tmux new-window -t "$NAME" -n $'\xef\x83\x8a Logs' -c "$DIR"
+
+  tmux select-window -t "$NAME:1"
+}
 
 # ── Work Flow ──────────────────────────────────────────────
 cmd_work() {
@@ -38,7 +90,7 @@ cmd_work() {
 
   if tmux has-session -t "$TICKET" 2>/dev/null; then
     info "Reattaching to: $TICKET (port $API_PORT)"
-    tmux attach-session -t "$TICKET"
+    attach "$TICKET"
     return
   fi
 
@@ -65,11 +117,7 @@ cmd_work() {
     warn "Rebase had conflicts — resolve manually"
   }
 
-  tmux new-session -d -s "$TICKET" -c "$WT_PATH" -n "🤖 claude"
-  tmux send-keys -t "$TICKET:1" "claudio" C-m
-  tmux new-window -t "$TICKET" -n " shell" -c "$WT_PATH"
-  tmux new-window -t "$TICKET" -n " logs" -c "$WT_PATH"
-  tmux select-window -t "$TICKET:1"
+  setup_session_windows "$TICKET" "$WT_PATH"
 
   if [ "$LINEAR_ENABLED" = "1" ] && command -v linear &>/dev/null; then
     info "Fetching Linear ticket..."
@@ -77,7 +125,7 @@ cmd_work() {
   fi
 
   ok "Starting: $TICKET in $WT_PATH (port $API_PORT)"
-  tmux attach-session -t "$TICKET"
+  attach "$TICKET"
 }
 
 cmd_done() {
@@ -140,7 +188,7 @@ cmd_start() {
 
   if tmux has-session -t "$NAME" 2>/dev/null; then
     info "Reattaching to: $NAME"
-    tmux attach-session -t "$NAME"
+    attach "$NAME"
     return
   fi
 
@@ -149,24 +197,56 @@ cmd_start() {
     ok "Created directory: $DIR"
   fi
 
-  tmux new-session -d -s "$NAME" -c "$DIR" -n " shell"
-  tmux new-window -t "$NAME" -n " logs" -c "$DIR"
-  tmux select-window -t "$NAME:1"
+  setup_session_windows "$NAME" "$DIR"
 
   ok "Starting: $NAME in $DIR"
-  tmux attach-session -t "$NAME"
+  attach "$NAME"
 }
 
 cmd_open() {
   local NAME="${1:?Usage: mm open <name>}"
   if tmux has-session -t "$NAME" 2>/dev/null; then
     info "Reattaching to: $NAME"
-    tmux attach-session -t "$NAME"
+    attach "$NAME"
   else
     err "No session found: $NAME"
     echo "Available sessions:"
     tmux ls 2>/dev/null || echo "  (none)"
     return 1
+  fi
+}
+
+cmd_resume() {
+  local DIR
+  DIR="$(pwd)"
+  local NAME
+  NAME="$(basename "$DIR")"
+
+  # Check if any existing session is rooted in this directory
+  local match=""
+  for session in $(tmux ls -F "#{session_name}" 2>/dev/null); do
+    local sess_path
+    sess_path=$(tmux display-message -t "$session" -p '#{pane_current_path}' 2>/dev/null || true)
+    if [ "$sess_path" = "$DIR" ]; then
+      match="$session"
+      break
+    fi
+  done
+
+  if [ -n "$match" ]; then
+    info "Resuming session: $match (in $DIR)"
+    # tmux-continuum restores layout but not processes — relaunch expected commands
+    # on any pane that came back as a bare shell.
+    ensure_pane_cmd "$match:1.1" claude
+    ensure_pane_cmd "$match:2.1" nvim
+    ensure_pane_cmd "$match:2.2" lazygit
+    ensure_pane_cmd "$match:3.1" demux
+    attach "$match"
+  else
+    info "No session found for $DIR — creating: $NAME"
+    setup_session_windows "$NAME" "$DIR"
+    ok "Starting: $NAME in $DIR"
+    attach "$NAME"
   fi
 }
 
@@ -257,6 +337,7 @@ $(echo -e "${C_LAVENDER}WORK FLOW${C_RESET}")
 $(echo -e "${C_LAVENDER}PERSONAL FLOW${C_RESET}")
   mm start <name> [path]   Create tmux session for personal project
   mm open <name>           Reattach to existing personal session
+  mm resume                Resume or create session for current directory
 
 $(echo -e "${C_LAVENDER}SESSION MANAGEMENT${C_RESET}")
   mm ls                    List all tmux sessions
@@ -273,6 +354,7 @@ $(echo -e "${C_LAVENDER}OTHER${C_RESET}")
 $(echo -e "${C_LAVENDER}EXAMPLES${C_RESET}")
   mm work UP-4522          # work ticket → worktree + session on port 8522
   mm start my-app          # personal project in ~/Code/my-app
+  mm resume                # resume or create session for current dir
   mm switch                # fuzzy-pick any session
   mm done UP-4522          # clean up when done
 EOF
@@ -303,6 +385,7 @@ cmd_keys() {
 ║─────────────────────────────────────│───────────────────────║
 ║  New work session                   │ mm work UP-XXXX       ║
 ║  New personal session               │ mm start <name>       ║
+║  Resume session in current dir      │ mm resume             ║
 ║  Session picker                     │ mm switch             ║
 ║  Session dashboard                  │ mm ls                 ║
 ║  Clean up ticket                    │ mm done UP-XXXX       ║
@@ -359,9 +442,9 @@ $(echo -e "${C_LAVENDER}FINISHING UP${C_RESET}")
   mm done UP-4522            Kills session, removes worktree, cleans branch
 
 $(echo -e "${C_LAVENDER}PERSISTENCE${C_RESET}")
-  Close Ghostty, reopen      tmux-resurrect brings everything back
-  Claude popup sessions      Survive across restarts
-  All tmux sessions          Auto-saved every 15 minutes
+  Close Ghostty, reopen      Sessions persist — tmux server runs as a daemon
+  Reboot or kill-server      Sessions gone; mm recreates on demand
+  No auto-save               Use mm work/start to spin sessions back up
 
 $(echo -e "${C_LAVENDER}DAILY RHYTHM${C_RESET}")
   Open Ghostty
@@ -384,6 +467,8 @@ case "$CMD" in
   done)    cmd_done "$@" ;;
   start)   cmd_start "$@" ;;
   open)    cmd_open "$@" ;;
+  resume)  cmd_resume ;;
+
   ls)      cmd_ls ;;
   switch)  cmd_switch ;;
   kill)    cmd_kill "$@" ;;
